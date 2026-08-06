@@ -605,6 +605,16 @@ select {
 .pl-6 {
   padding-left: 1.5rem;
 }
+/* .data-table th/td have their own padding shorthand which otherwise
+   outranks these utility classes on specificity — pin it back down. */
+.data-table th.pl-4,
+.data-table td.pl-4 {
+  padding-left: 1rem;
+}
+.data-table th.pl-6,
+.data-table td.pl-6 {
+  padding-left: 1.5rem;
+}
 .w-32 {
   width: 8rem;
 }
