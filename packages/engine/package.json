@@ -1,0 +1,35 @@
+{
+  "name": "@reckon/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/api/server.js",
+    "start": "node src/api/server.js",
+    "migrate": "node src/db/migrate.js",
+    "seed": "node src/db/seed.js",
+    "drive-payment": "node src/cli/drivePayment.js",
+    "backfill": "node src/cli/backfill.js",
+    "reconcile": "node src/cli/reconcile.js",
+    "chaos": "node src/cli/chaos.js",
+    "outbox-worker": "node src/outbox/worker.js",
+    "recon-worker": "node src/reconciliation/worker.js",
+    "test": "vitest run",
+    "lint": "eslint src test --ext .js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.12.0",
+    "zod": "^3.23.8",
+    "pino": "^9.3.2",
+    "stripe": "^16.8.0",
+    "dotenv": "^16.4.5",
+    "bullmq": "^5.12.12",
+    "ioredis": "^5.4.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "fast-check": "^3.21.0",
+    "vitest": "^2.0.5"
+  }
+}
