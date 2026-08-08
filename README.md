@@ -1,10 +1,8 @@
 # Reckon (plain JS/CSS port)
 
-**A reconciliation and ledger-integrity engine — proving the money is always right.**
+A reconciliation and ledger-integrity engine for payments: a double-entry ledger where every movement of money is a balanced, immutable set of postings, a payment lifecycle that stays correct when webhooks arrive twice, out of order, or not at all, and a reconciliation engine that continuously checks the internal ledger against the payment provider's records. A fault-injection harness deliberately breaks delivery to verify the reconciler catches every class of drift.
 
-Reckon is not a checkout app. It is the layer real fintech teams staff whole squads for: a double-entry ledger where every movement of money is a balanced, immutable set of postings, a payment lifecycle engineered to stay correct when webhooks arrive twice, out of order, or never, and a reconciliation engine that continuously proves the internal ledger matches the payment provider's records — then a fault-injection harness that deliberately breaks delivery to prove the reconciler catches every class of drift.
-
-This repo is a **plain-JavaScript, plain-CSS port** of the original TypeScript + Tailwind build at `e:/reckon` — same architecture, same tests, same numbers, no TypeScript, no Tailwind. See [PROJECT_REPORT.md §0](PROJECT_REPORT.md#0-why-this-repo-exists--the-typescriptjavascript-tailwindcss-port) for why.
+This repo is a plain-JavaScript, plain-CSS port of the original TypeScript + Tailwind build — same architecture, same tests, same numbers, no TypeScript, no Tailwind.
 
 ```
                                    ┌──────────────────────────────────────────┐
@@ -18,8 +16,8 @@ This repo is a **plain-JavaScript, plain-CSS port** of the original TypeScript +
          │ provider truth          │        │ replay                         │
          ▼                         │  ┌────────────┐      ┌───────────────┐  │
  ┌───────────────┐    window diff  │  │ backfill / │      │ double-entry  │  │
- │ fault proxy    │──(drop, dup,──▶│  │ reconciler │─────▶│ ledger (§6)   │  │
- │ (chaos, §9)    │  reorder, ...) │  └────────────┘      │ zero-sum, DB- │  │
+ │ fault proxy    │──(drop, dup,──▶│  │ reconciler │─────▶│ ledger        │  │
+ │ (chaos)        │  reorder, ...) │  └────────────┘      │ zero-sum, DB- │  │
  └───────────────┘                 │   breaks + audit     │ enforced      │  │
                                    └──────────────────────────────────────────┘
                                             │                    │
@@ -27,19 +25,19 @@ This repo is a **plain-JavaScript, plain-CSS port** of the original TypeScript +
                                      (plain CSS)
 ```
 
-## Why this is the interesting half of payments
+## What it does
 
-Most payment demos end at "payment successful". At that moment the real problems begin: the provider says one thing, your database says another, and at scale a tiny fraction of mismatches becomes a financial hole. Reckon treats that as the system:
+Most payment demos stop at "payment successful." The interesting part starts there: the provider says one thing, your database says another, and at scale a small mismatch rate becomes a real financial hole. Reckon is built around that problem:
 
-- **Money is postings, not a balance column.** Every ledger transaction's debits equal its credits, enforced in application code *and* by a deferred Postgres constraint trigger. Postings are append-only — a DB trigger rejects `UPDATE`/`DELETE`; corrections are new reversing transactions. Balances are always derived from postings, never stored.
-- **Amounts are integer minor units (`bigint`), never floats** — `moneyFromJSON()` explicitly refuses a JS `number` argument at the boundary. (The TypeScript build also had the compiler enforcing this; this port relies on the runtime guard plus tests alone — see the honest trade-off in [PROJECT_REPORT.md §16](PROJECT_REPORT.md#16-honest-caveats-what-is-not-done-and-what-the-port-gave-up).)
-- **Exactly-once webhook processing:** raw-body HMAC signature verification, and the idempotency record + state transition + ledger write + outbox rows all committed in **one** database transaction. A crash anywhere inside rolls the whole event back, so the provider's at-least-once retry is safe by construction.
-- **Out-of-order delivery is a designed case**: an event that would cause an illegal state transition is recorded (`applied: false`) and left for reconciliation, never applied blindly and never dropped.
-- **Six drift classes detected**: missing, duplicate, amount-mismatch, stuck-pending, unresolved hold, status/out-of-order mismatch — each break stored with both the provider's and Reckon's snapshots and a full resolution audit trail. Auto-resolution may only *append* reversing/correcting transactions, and **never** auto-resolves an amount mismatch.
+- **Money is postings, not a balance column.** Every ledger transaction's debits equal its credits, enforced in application code and by a deferred Postgres constraint trigger. Postings are append-only — a DB trigger rejects `UPDATE`/`DELETE`; corrections are new reversing transactions. Balances are always derived from postings, never stored.
+- **Amounts are integer minor units (`bigint`), never floats.** `moneyFromJSON()` refuses a JS `number` argument at the boundary.
+- **Exactly-once webhook processing:** raw-body HMAC signature verification, with the idempotency record, state transition, ledger write, and outbox rows all committed in one database transaction. A crash anywhere inside rolls the whole event back, so the provider's at-least-once retry is safe by construction.
+- **Out-of-order delivery is a designed case.** An event that would cause an illegal state transition is recorded (`applied: false`) and left for reconciliation — never applied blindly, never dropped.
+- **Six drift classes detected:** missing, duplicate, amount-mismatch, stuck-pending, unresolved hold, status/out-of-order mismatch — each stored with both the provider's and Reckon's snapshots and a resolution audit trail. Auto-resolution may only append reversing/correcting transactions, and never auto-resolves an amount mismatch.
 
-## Proof, not prose
+## Results
 
-Both tables below were produced by this exact repo running against real Postgres/Redis containers on 2026-08-06 — `npm run engine:test` and `npm run chaos` — and match the original TypeScript build's numbers exactly.
+Both tables below came from this repo running against real Postgres/Redis containers (`npm run engine:test` and `npm run chaos`), and match the original TypeScript build's numbers.
 
 ### Ledger invariants
 
@@ -66,7 +64,7 @@ mutate_amount       amount_mismatch  amount_mismatch  open                      
 delay               stuck_pending    stuck_pending    auto_resolved: provider_truth_applied              PASS
 ```
 
-Scored against known ground truth over mixed multi-round runs: **100% precision, 100% recall**, zero false positives/negatives; **83.3% of detected breaks auto-resolve** — intentionally below 100%, because amount mismatches must always go to a human.
+Scored against known ground truth over mixed multi-round runs: 100% precision, 100% recall, zero false positives/negatives; 83.3% of detected breaks auto-resolve — intentionally below 100%, because amount mismatches must always go to a human.
 
 **42 automated tests passing** — `npm run engine:test`:
 
@@ -77,25 +75,23 @@ Scored against known ground truth over mixed multi-round runs: **100% precision,
 
 ## Screenshots
 
-Captured from this build with real seeded + chaos-generated data (screenshots live in a sibling folder, `E:\reckon-js-screenshots`, outside of git — see [Reproducing the screenshots](#reproducing-the-screenshots) below).
-
 ### Overview — live balance-sheet check
-![Overview: books balanced, payments by state, open breaks by severity](../reckon-js-screenshots/overview.png)
+![Overview: books balanced, payments by state, open breaks by severity](docs/screenshots/overview.png)
 
 ### Ledger — trial balance + append-only transaction log
-![Ledger: trial balance netting to zero, recent hold/settlement/reversal transactions](../reckon-js-screenshots/ledger.png)
+![Ledger: trial balance netting to zero, recent hold/settlement/reversal transactions](docs/screenshots/ledger.png)
 
 ### Payments — per-payment state-machine history
-![Payments: list with amounts and states, selected payment's event log on the right](../reckon-js-screenshots/payments.png)
+![Payments: list with amounts and states, selected payment's event log on the right](docs/screenshots/payments.png)
 
 ### Reconciliation — breaks with full provider-vs-Reckon audit trail
-![Reconciliation: filterable break list, provider snapshot vs Reckon snapshot side by side](../reckon-js-screenshots/reconciliation.png)
+![Reconciliation: filterable break list, provider snapshot vs Reckon snapshot side by side](docs/screenshots/reconciliation.png)
 
 ### Chaos — fault injection, verification matrix
-![Chaos: seven fault buttons, 8/8 PASS verification matrix](../reckon-js-screenshots/chaos-matrix.png)
+![Chaos: seven fault buttons, 8/8 PASS verification matrix](docs/screenshots/chaos-matrix.png)
 
 ### Chaos — precision/recall scoring
-![Chaos: precision 100%, recall 100%, auto-resolution 83.3%, full scored matrix](../reckon-js-screenshots/chaos-scored.png)
+![Chaos: precision 100%, recall 100%, auto-resolution 83.3%, full scored matrix](docs/screenshots/chaos-scored.png)
 
 ## Quick start
 
@@ -124,22 +120,18 @@ npm --workspace @reckon/engine test                       # 42 tests incl. prope
 
 To run against **Stripe test mode** instead of the mock: set `PROVIDER=stripe`, `STRIPE_TEST_KEY` (an `sk_test_` key — the engine refuses live keys at construction), and `STRIPE_WEBHOOK_SECRET` (from `stripe listen --print-secret`) in `packages/engine/.env`, then point `stripe listen --forward-to localhost:4000/webhooks/provider`.
 
-## Live verification — run this yourself
-
-Every claim in this README and in `LAUNCH_REPORT.md` is reproducible from a clean checkout. This is the exact sequence used to generate the numbers and screenshots above; run it top to bottom.
+## Reproducing the results yourself
 
 ```bash
 # 1. Install workspace dependencies (root, engine, dashboard)
-cd e:/reckon-js
 npm install
 
-# 2. Bring up Postgres 16 + Redis 7 (lightweight — bring down when done, see step 8)
+# 2. Bring up Postgres 16 + Redis 7
 npm run db:up
 docker compose ps                          # both containers should show "Up"
 
-# 3. Apply the 7 SQL migrations
+# 3. Apply the SQL migrations
 npm run db:migrate
-# expect: "applying 000_extensions.sql" ... "migrations up to date"
 
 # 4. Seed a handful of demo payments (optional, but makes the dashboard non-empty)
 npm run db:seed
@@ -167,7 +159,7 @@ If step 5 or 6 fails on a fresh machine, it is almost always step 2/3 not having
 
 ## PCI scope boundary
 
-Reckon never sees, stores, or transmits card data. The provider's hosted checkout owns the PAN end-to-end; Reckon holds only provider object IDs (PaymentIntent ids, event ids) and its own ledger records. There is no card-number-shaped column anywhere in the schema, live keys are refused in code, and the repo runs sandbox/test mode only. Staying out of PCI scope is a designed property of the architecture, not an accident.
+Reckon never sees, stores, or transmits card data. The provider's hosted checkout owns the PAN end-to-end; Reckon holds only provider object IDs (PaymentIntent ids, event ids) and its own ledger records. There is no card-number-shaped column anywhere in the schema, live keys are refused in code, and the repo runs sandbox/test mode only.
 
 ## Repo layout
 
@@ -186,21 +178,5 @@ packages/engine/
                            per-drift-class reconciliation, the verification matrix
 apps/dashboard/          React + Vite + plain CSS: Overview, Ledger, Payments,
                           Reconciliation (breaks + resolve/ignore), Chaos (fault control panel)
-docs/                    chart_of_accounts.md, powerbi.md, ROADMAP.md, launch.md
+docs/screenshots/        dashboard screenshots referenced above
 ```
-
-## Reproducing the screenshots
-
-Screenshots deliberately live outside the repo (`E:\reckon-js-screenshots`) rather than committed alongside the code, so the git history stays free of binary image churn. To regenerate them yourself once the dashboard has real data (after step 7 above):
-
-1. Install a headless browser once: `npx playwright install chromium --with-deps`.
-2. Navigate to each tab of `http://localhost:5173`, optionally clicking a row/break to populate the detail panel, and on the Chaos tab click **Run full matrix** then **Precision / recall run**.
-3. Screenshot each page — any tool works (Playwright's `page.screenshot()`, a browser extension, or the OS screenshot tool) — into `E:\reckon-js-screenshots`.
-
-## Documentation
-
-- [docs/chart_of_accounts.md](docs/chart_of_accounts.md) — the account map and exact posting sequences (hold / settle / release).
-- [docs/powerbi.md](docs/powerbi.md) — rebuilding break-rate and mean-time-to-reconcile charts from the CSV exports.
-- [docs/ROADMAP.md](docs/ROADMAP.md) — deliberate v1 boundaries and the seams left for them.
-- [PROJECT_REPORT.md](PROJECT_REPORT.md) — the full build report, including why this port exists and the engineering problems solved along the way.
-- [LAUNCH_REPORT.md](LAUNCH_REPORT.md) — every placeholder in the build and what the owner must supply.
